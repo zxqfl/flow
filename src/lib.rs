@@ -8,34 +8,33 @@ extern {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Node(pub usize);
 
-pub struct Edge<Data> {
+pub struct Edge {
     pub a: Node,
     pub b: Node,
-    pub data: Data,
+    pub data: EdgeData,
 }
 
-pub struct Graph<NodeData, EdgeData> {
+pub struct Graph {
     nodes: Vec<NodeData>,
-    edges: Vec<Edge<EdgeData>>,
+    edges: Vec<Edge>,
 }
 
-impl<ND, ED> Graph<ND, ED> {
-    #[allow(dead_code)]
-    pub fn new(nodes: Vec<ND>) -> Self {
+impl Graph {
+    pub fn new(nodes: Vec<NodeData>) -> Self {
         Graph {nodes, edges: Vec::new()}
     }
-    pub fn add_edge(&mut self, a: Node, b: Node, data: ED) -> &mut Self {
+    pub fn add_edge(&mut self, a: Node, b: Node, data: EdgeData) -> &mut Self {
         assert!(a.0 < self.nodes.len());
         assert!(b.0 < self.nodes.len());
         self.edges.push(Edge {a, b, data});
         self
     }
-    pub fn extract(self) -> (Vec<ND>, Vec<Edge<ED>>) {
+    pub fn extract(self) -> (Vec<NodeData>, Vec<Edge>) {
         (self.nodes, self.edges)
     }
 }
 
-impl<ND, ED> Graph<ND, ED> where ND: Default + Clone {
+impl Graph {
     pub fn new_default(num_vertices: usize) -> Self {
         let nodes = vec![Default::default(); num_vertices];
         Graph {nodes, edges: Vec::new()}
@@ -43,36 +42,31 @@ impl<ND, ED> Graph<ND, ED> where ND: Default + Clone {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct MCMFNodeData<Value> {
-    supply: Value,
+pub struct NodeData {
+    supply: i64,
 }
 
 #[derive(Clone, Copy)]
-pub struct MCMFEdgeData<Value> {
-    pub cost: Value,
-    pub capacity: Value,
-    pub flow: Value,
+pub struct EdgeData {
+    pub cost: i64,
+    pub capacity: i64,
+    pub flow: i64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Cost<T>(pub T);
+pub struct Cost(pub i64);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Capacity<T>(pub T);
+pub struct Capacity(pub i64);
 
-impl<T: Default> MCMFEdgeData<T> {
-    pub fn new(cost: Cost<T>, capacity: Capacity<T>) -> Self {
+impl EdgeData {
+    pub fn new(cost: Cost, capacity: Capacity) -> Self {
         let cost = cost.0;
         let capacity = capacity.0;
-        MCMFEdgeData {cost, capacity, flow: Default::default()}
+        EdgeData {cost, capacity, flow: Default::default()}
     }
 }
 
-pub trait MCMFGraph {
-    type Value;
-    fn mcmf(&mut self) -> Self::Value;
-}
-
-impl Graph<MCMFNodeData<i64>, MCMFEdgeData<i64>> {
+impl Graph {
     pub fn increase_supply(&mut self, node: Node, amount: i64) {
         self.delta_supply(node, amount);
     }
@@ -82,12 +76,8 @@ impl Graph<MCMFNodeData<i64>, MCMFEdgeData<i64>> {
     pub fn delta_supply(&mut self, node: Node, amount: i64) {
         self.nodes[node.0].supply += amount;
     }
-}
 
-impl MCMFGraph for Graph<MCMFNodeData<i64>, MCMFEdgeData<i64>> {
-    type Value = i64;
-
-    fn mcmf(&mut self) -> Self::Value {
+    pub fn mcmf(&mut self) -> i64 {
         let num_vertices = self.nodes.len() as i64;
         let num_edges = self.edges.len() as i64;
         let node_supply: Vec<_> = self.nodes.iter().map(|x| x.supply).collect();
@@ -119,11 +109,11 @@ mod tests {
         let mut G = Graph::new_default(4);
         G.increase_supply(Node(0), 20);
         G.decrease_supply(Node(3), 20);
-        G.add_edge(Node(0), Node(1), MCMFEdgeData::new(Cost(100), Capacity(10)));
-        G.add_edge(Node(0), Node(2), MCMFEdgeData::new(Cost(300), Capacity(20)));
-        G.add_edge(Node(1), Node(2), MCMFEdgeData::new(Cost(50), Capacity(5)));
-        G.add_edge(Node(1), Node(3), MCMFEdgeData::new(Cost(200), Capacity(10)));
-        G.add_edge(Node(2), Node(3), MCMFEdgeData::new(Cost(100), Capacity(20)));
+        G.add_edge(Node(0), Node(1), EdgeData::new(Cost(100), Capacity(10)));
+        G.add_edge(Node(0), Node(2), EdgeData::new(Cost(300), Capacity(20)));
+        G.add_edge(Node(1), Node(2), EdgeData::new(Cost(50), Capacity(5)));
+        G.add_edge(Node(1), Node(3), EdgeData::new(Cost(200), Capacity(10)));
+        G.add_edge(Node(2), Node(3), EdgeData::new(Cost(100), Capacity(20)));
         let cost = G.mcmf();
         let (_, edges) = G.extract();
         let flow: Vec<_> = edges.iter().map(|x| x.data.flow).collect();
