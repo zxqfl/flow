@@ -1,3 +1,36 @@
+//! This crate is for solving instances of the [min cost max flow problem](https://en.wikipedia.org/wiki/Minimum-cost_flow_problem).
+//! It uses the network simplex algorithm from the [LEMON](http://lemon.cs.elte.hu/trac/lemon) graph optimization library.
+//! 
+//! # Example
+//! ```
+//! use flow;
+//! #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+//! enum Vertex {
+//!     Source, Sink, City(String)
+//! }
+//! impl flow::Vertex for Vertex {
+//!     const SOURCE: Vertex = Vertex::Source;
+//!     const SINK: Vertex = Vertex::Sink;
+//! }
+//! impl<'a> From<&'a str> for Vertex {
+//!     fn from(s: &str) -> Vertex {
+//!         Vertex::City(String::from(s))
+//!     }
+//! }
+//! use flow::{Cost, Capacity};
+//! let (cost, flows) = flow::GraphBuilder::<Vertex>::new()
+//!     .add_edge(Vertex::Source, "Vancouver", Capacity(2), Cost(0))
+//!     .add_edge("Vancouver", "Toronto", Capacity(2), Cost(100))
+//!     .add_edge("Toronto", "Halifax", Capacity(1), Cost(150))
+//!     .add_edge("Vancouver", "Halifax", Capacity(5), Cost(400))
+//!     .add_edge("Halifax", Vertex::Sink, Capacity(2), Cost(0))
+//!     .mcmf();
+//! assert_eq!(cost, 650);
+//! ```
+
+use std::collections::BTreeMap;
+use std::iter;
+
 #[link(name="flow")]
 extern {
     fn network_simplex_mcmf_i64(num_vertices: i64, num_edges: i64,
@@ -6,23 +39,20 @@ extern {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub struct Node(pub usize);
+struct Node(usize);
 
-pub struct Edge {
+struct Edge {
     pub a: Node,
     pub b: Node,
     pub data: EdgeData,
 }
 
-pub struct Graph {
+struct Graph {
     nodes: Vec<NodeData>,
     edges: Vec<Edge>,
 }
 
 impl Graph {
-    pub fn new(nodes: Vec<NodeData>) -> Self {
-        Graph {nodes, edges: Vec::new()}
-    }
     pub fn add_edge(&mut self, a: Node, b: Node, data: EdgeData) -> &mut Self {
         assert!(a.0 < self.nodes.len());
         assert!(b.0 < self.nodes.len());
@@ -42,19 +72,21 @@ impl Graph {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct NodeData {
+struct NodeData {
     supply: i64,
 }
 
 #[derive(Clone, Copy)]
-pub struct EdgeData {
-    pub cost: i64,
-    pub capacity: i64,
-    pub flow: i64,
+struct EdgeData {
+    cost: i64,
+    capacity: i64,
+    flow: i64,
 }
 
+/// Wrapper type representing the cost of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cost(pub i64);
+/// Wrapper type representing the capacity of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Capacity(pub i64);
 
@@ -96,6 +128,136 @@ impl Graph {
             edge.data.flow = flow;
         }
         result
+    }
+}
+
+/// Represents a vertex which can be used by `GraphBuilder`.
+pub trait Vertex: Ord + Clone {
+    const SOURCE: Self;
+    const SINK: Self;
+}
+
+/// Represents flow in a solution to the min cost max flow problem.
+#[derive(Clone, Copy)]
+pub struct Flow<V, Cost> {
+    pub a: V,
+    pub b: V,
+    pub amount: i64,
+    pub cost: Cost
+}
+
+/// Use this struct to build a graph, then call the `mcmf()` function to run the Network Simplex algorithm on it.
+#[derive(Clone, Debug)]
+pub struct GraphBuilder<V: Vertex> {
+    pub edge_list: Vec<(V, V, Capacity, Cost)>
+}
+
+impl<V> GraphBuilder<V> where V: Vertex {
+    pub fn new() -> Self {
+        GraphBuilder {edge_list: Vec::new()}
+    }
+
+    /// Add an edge to the graph.
+    ///
+    /// `capacity` and `cost` have wrapper types so that you can't mix them up.
+    pub fn add_edge<A: Into<V>, B: Into<V>>(&mut self, a: A, b: B,
+            capacity: Capacity, cost: Cost) -> &mut Self {
+        let a = a.into();
+        let b = b.into();
+        assert!(a != b);
+        assert!(a != V::SINK);
+        assert!(b != V::SOURCE);
+        self.edge_list.push((a, b, capacity, cost));
+        self
+    }
+
+    /// Computes the min cost max flow.
+    /// Returns a tuple (total cost, vector of flows).
+    pub fn mcmf(&self) -> (i64, Vec<Flow<V, i64>>) {
+        let mut next_id = 0;
+        let source = V::SOURCE.clone();
+        let sink = V::SINK.clone();
+        let mut index_mapper = BTreeMap::new();
+        for vertex in self.edge_list.iter()
+                .flat_map(move |&(ref a, ref b, _, _)| iter::once(a).chain(iter::once(b)))
+                .chain(iter::once(&source))
+                .chain(iter::once(&sink)) {
+            if !index_mapper.contains_key(&vertex) {
+                index_mapper.insert(vertex, next_id);
+                next_id += 1;
+            }
+        }
+        let num_vertices = next_id;
+        let mut g = Graph::new_default(num_vertices);
+        for &(ref a, ref b, cap, cost) in &self.edge_list {
+            let node_a = Node(*index_mapper.get(&a).unwrap());
+            let node_b = Node(*index_mapper.get(&b).unwrap());
+            if *a == V::SOURCE || *b == V::SINK {
+                // The + supply and - supply must be equal because of how LEMON interprets
+                // its input.
+                // http://lemon.cs.elte.hu/pub/doc/latest/a00005.html
+                g.increase_supply(Node(*index_mapper.get(&V::SOURCE).unwrap()), cap.0);
+                g.decrease_supply(Node(*index_mapper.get(&V::SINK).unwrap()), cap.0);
+            }
+            g.add_edge(node_a, node_b, EdgeData::new(cost, cap));
+        }
+        let total_amount = g.mcmf();
+        let (_, edges) = g.extract();
+        let inverse_mapping: BTreeMap<_, _> =
+            index_mapper.into_iter().map(|(a, b)| (b, a)).collect();
+        (total_amount, edges.into_iter().map(|x| {
+            let a = (**inverse_mapping.get(&x.a.0).unwrap()).clone();
+            let b = (**inverse_mapping.get(&x.b.0).unwrap()).clone();
+            let amount = x.data.flow;
+            let cost = x.data.cost;
+            Flow {a, b, amount, cost}
+        })
+            .filter(|x| x.amount != 0)
+            .collect())
+    }
+}
+
+/// A wrapper around `GraphBuilder` with floats as the costs.
+#[derive(Clone, Debug)]
+pub struct GraphBuilderFloat<V: Vertex> {
+    pub builder: GraphBuilder<V>,
+    unit: f64,
+}
+
+impl<V> GraphBuilderFloat<V> where V: Vertex {
+    /// Creates a new `GraphBuilderFloat`.
+    /// Edge costs will be rounded to the nearest multiple of `unit`.
+    pub fn new(unit: f64) -> Self {
+        GraphBuilderFloat {builder: GraphBuilder::new(), unit}
+    }
+
+    fn quantize(&self, x: f64) -> i64 {
+        (x / self.unit).round() as i64
+    }
+    fn unquantize(&self, x: i64) -> f64 {
+        x as f64 * self.unit
+    }
+
+    /// Add an edge to the graph.
+    pub fn add_edge<A: Into<V>, B: Into<V>>(&mut self, a: A, b: B,
+            capacity: i64, cost: f64) {
+        let cost = self.quantize(cost);
+        self.builder.add_edge(a, b, Capacity(capacity), Cost(cost));
+    }
+
+    /// Computes the min cost max flow.
+    /// Returns a tuple (total cost, vector of flows).
+    pub fn mcmf(&self) -> (f64, Vec<Flow<V, f64>>) {
+        let (total, flows) = self.builder.mcmf();
+        let total = self.unquantize(total);
+        let flows = flows.into_iter()
+            .map(|flow| Flow {
+                a: flow.a,
+                b: flow.b,
+                amount: flow.amount,
+                cost: self.unquantize(flow.cost)})
+            .collect();
+        (total, flows)
     }
 }
 
