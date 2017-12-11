@@ -4,7 +4,7 @@
 //! # Example
 //! ```
 //! use flow::{GraphBuilder, Vertex, Cost, Capacity};
-//! let (cost, flows) = GraphBuilder::new()
+//! let (cost, paths) = GraphBuilder::new()
 //!     .add_edge(Vertex::Source, "Vancouver", Capacity(2), Cost(0))
 //!     .add_edge("Vancouver", "Toronto", Capacity(2), Cost(100))
 //!     .add_edge("Toronto", "Halifax", Capacity(1), Cost(150))
@@ -12,10 +12,25 @@
 //!     .add_edge("Halifax", Vertex::Sink, Capacity(2), Cost(0))
 //!     .mcmf();
 //! assert_eq!(cost, 650);
+//! assert_eq!(paths.len(), 2);
+//! assert!(
+//!     paths[0].vertices() == vec![
+//!         &Vertex::Source,
+//!         &Vertex::Node("Vancouver"),
+//!         &Vertex::Node("Halifax"),
+//!         &Vertex::Sink]);
+//! assert!(
+//!     paths[1].vertices() == vec![
+//!         &Vertex::Source,
+//!         &Vertex::Node("Vancouver"),
+//!         &Vertex::Node("Toronto"),
+//!         &Vertex::Node("Halifax"),
+//!         &Vertex::Sink]);
 //! ```
 
 use std::collections::BTreeMap;
 use std::iter;
+use std::cmp::min;
 
 #[link(name="flow")]
 extern {
@@ -71,15 +86,16 @@ struct EdgeData {
 
 /// Wrapper type representing the cost of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Cost(pub i64);
+pub struct Cost(pub i32);
 /// Wrapper type representing the capacity of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Capacity(pub i64);
+pub struct Capacity(pub u32);
 
 impl EdgeData {
     pub fn new(cost: Cost, capacity: Capacity) -> Self {
-        let cost = cost.0;
-        let capacity = capacity.0;
+        let cost = cost.0 as i64;
+        let capacity = capacity.0 as i64;
+        assert!(capacity >= 0);
         EdgeData {cost, capacity, flow: Default::default()}
     }
 }
@@ -117,7 +133,6 @@ impl Graph {
     }
 }
 
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Vertex<T: Ord + Clone> {
     Source, Sink, Node(T)
@@ -131,20 +146,85 @@ impl<T> From<T> for Vertex<T> where T: Clone + Ord {
 
 /// Represents flow in a solution to the minimum cost maximum flow problem.
 #[derive(Clone, Copy)]
-pub struct Flow<V, Cost> {
+pub struct Flow<V> {
     pub a: V,
     pub b: V,
-    pub amount: i64,
-    pub cost: Cost
+    pub amount: u32,
+    pub cost: i32
+}
+
+/// Represents a path from the source to the sink in a solution to the minimum cost maximum flow problem.
+pub struct Path<V> {
+    pub flows: Vec<Flow<V>>
+}
+
+impl<V> Path<V> {
+    /// A list of all the vertices in the path.
+    /// Always begins with `Vertex::Source` and ends with `Vertex::Sink`.
+    pub fn vertices(&self) -> Vec<&V> {
+        iter::once(&self.flows[0].a)
+            .chain(self.flows.iter().map(|x| &x.b))
+            .collect()
+    }
+
+    /// A list of all the edges in the path.
+    pub fn edges(&self) -> Vec<&Flow<V>> {
+        self.flows.iter().collect()
+    }
+
+    /// Returns the total cost of the path.
+    /// `path.cost()` is always a multiple of `path.amount()`.
+    pub fn cost(&self) -> i64 {
+        self.flows.iter()
+            .map(|flow| flow.amount as i64 * flow.cost as i64)
+            .sum()
+    }
+
+    /// Returns the amount of flow in the path.
+    pub fn amount(&self) -> u32 {
+        self.flows[0].amount
+    }
+
+    /// Returns the number of edges in the path.
+    pub fn len(&self) -> usize {
+        self.flows.len()
+    }
 }
 
 /// Use this struct to build a graph, then call the `mcmf()` function to find its minimum cost maximum flow.
+/// # Example
+/// ```
+/// use flow::{GraphBuilder, Vertex, Cost, Capacity};
+/// let (cost, paths) = GraphBuilder::new()
+///     .add_edge(Vertex::Source, "Vancouver", Capacity(2), Cost(0))
+///     .add_edge("Vancouver", "Toronto", Capacity(2), Cost(100))
+///     .add_edge("Toronto", "Halifax", Capacity(1), Cost(150))
+///     .add_edge("Vancouver", "Halifax", Capacity(5), Cost(400))
+///     .add_edge("Halifax", Vertex::Sink, Capacity(2), Cost(0))
+///     .mcmf();
+/// assert_eq!(cost, 650);
+/// assert_eq!(paths.len(), 2);
+/// assert!(
+///     paths[0].vertices() == vec![
+///         &Vertex::Source,
+///         &Vertex::Node("Vancouver"),
+///         &Vertex::Node("Halifax"),
+///         &Vertex::Sink]);
+/// assert!(
+///     paths[1].vertices() == vec![
+///         &Vertex::Source,
+///         &Vertex::Node("Vancouver"),
+///         &Vertex::Node("Toronto"),
+///         &Vertex::Node("Halifax"),
+///         &Vertex::Sink]);
+/// ```
 #[derive(Clone)]
 pub struct GraphBuilder<T: Ord + Clone> {
     pub edge_list: Vec<(Vertex<T>, Vertex<T>, Capacity, Cost)>
 }
 
 impl<T> GraphBuilder<T> where T: Ord + Clone {
+    /// Creates a new empty graph.
     pub fn new() -> Self {
         GraphBuilder {edge_list: Vec::new()}
     }
@@ -163,8 +243,9 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
     }
 
     /// Computes the minimum cost maximum flow.
-    /// Returns a tuple (total cost, vector of flows).
-    pub fn mcmf(&self) -> (i64, Vec<Flow<Vertex<T>, i64>>) {
+    /// Returns a tuple (total cost, list of paths).
+    /// The paths are sorted in ascending order by length.
+    pub fn mcmf(&self) -> (i64, Vec<Path<Vertex<T>>>) {
         let mut next_id = 0;
         let source = Vertex::Source.clone();
         let sink = Vertex::Sink.clone();
@@ -187,8 +268,8 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
                 // The + supply and - supply must be equal because of how LEMON interprets
                 // its input.
                 // http://lemon.cs.elte.hu/pub/doc/latest/a00005.html
-                g.increase_supply(Node(*index_mapper.get(&Vertex::Source).unwrap()), cap.0);
-                g.decrease_supply(Node(*index_mapper.get(&Vertex::Sink).unwrap()), cap.0);
+                g.increase_supply(Node(*index_mapper.get(&Vertex::Source).unwrap()), cap.0 as i64);
+                g.decrease_supply(Node(*index_mapper.get(&Vertex::Sink).unwrap()), cap.0 as i64);
             }
             g.add_edge(node_a, node_b, EdgeData::new(cost, cap));
         }
@@ -196,59 +277,55 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
         let (_, edges) = g.extract();
         let inverse_mapping: BTreeMap<_, _> =
             index_mapper.into_iter().map(|(a, b)| (b, a)).collect();
-        (total_amount, edges.into_iter().map(|x| {
+        let flows = edges.into_iter().map(|x| {
             let a = (**inverse_mapping.get(&x.a.0).unwrap()).clone();
             let b = (**inverse_mapping.get(&x.b.0).unwrap()).clone();
-            let amount = x.data.flow;
-            let cost = x.data.cost;
+            let amount = x.data.flow as u32;
+            let cost = x.data.cost as i32;
             Flow {a, b, amount, cost}
         })
             .filter(|x| x.amount != 0)
-            .collect())
-    }
-}
-
-/// A wrapper around `GraphBuilder` with floats as the costs.
-#[derive(Clone)]
-pub struct GraphBuilderFloat<T: Ord + Clone> {
-    pub builder: GraphBuilder<T>,
-    unit: f64,
-}
-
-impl<T> GraphBuilderFloat<T> where T: Ord + Clone {
-    /// Creates a new `GraphBuilderFloat`.
-    /// Edge costs will be rounded to the nearest multiple of `unit`.
-    pub fn new(unit: f64) -> Self {
-        GraphBuilderFloat {builder: GraphBuilder::new(), unit}
-    }
-
-    fn quantize(&self, x: f64) -> i64 {
-        (x / self.unit).round() as i64
-    }
-    fn unquantize(&self, x: i64) -> f64 {
-        x as f64 * self.unit
-    }
-
-    /// Add an edge to the graph.
-    pub fn add_edge<A: Into<Vertex<T>>, B: Into<Vertex<T>>>(&mut self, a: A, b: B,
-            capacity: i64, cost: f64) {
-        let cost = self.quantize(cost);
-        self.builder.add_edge(a, b, Capacity(capacity), Cost(cost));
-    }
-
-    /// Computes the minimum cost maximum flow.
-    /// Returns a tuple (total cost, vector of flows).
-    pub fn mcmf(&self) -> (f64, Vec<Flow<Vertex<T>, f64>>) {
-        let (total, flows) = self.builder.mcmf();
-        let total = self.unquantize(total);
-        let flows = flows.into_iter()
-            .map(|flow| Flow {
-                a: flow.a,
-                b: flow.b,
-                amount: flow.amount,
-                cost: self.unquantize(flow.cost)})
             .collect();
-        (total, flows)
+        let mut paths = GraphBuilder::path_decomposition(flows);
+        paths.sort_by_key(|path| path.len());
+        (total_amount, paths)
+    }
+
+    fn path_decomposition(flows: Vec<Flow<Vertex<T>>>) -> Vec<Path<Vertex<T>>> {
+        let mut adj: BTreeMap<Vertex<T>, Vec<Flow<Vertex<T>>>> = flows.iter()
+            .map(|x| (x.a.clone(), Vec::new()))
+            .collect();
+        for x in flows {
+            adj.get_mut(&x.a).unwrap().push(x);
+        }
+        fn decompose<T: Ord + Clone>(adj: &mut BTreeMap<Vertex<T>, Vec<Flow<Vertex<T>>>>, v: &Vertex<T>, parent_amount: u32) -> (u32, Vec<Flow<Vertex<T>>>) {
+            if *v == Vertex::Sink {
+                (std::u32::MAX, Vec::new())
+            } else if adj.get(&v).into_iter().all(|x| x.is_empty()) {
+                (0, Vec::new())
+            } else {
+                let flow = adj.get_mut(&v).unwrap().pop().unwrap();
+                let amount = min(parent_amount, flow.amount);
+                let (child_amount, child_path) = decompose(adj, &flow.b, amount);
+                let amount = min(amount, child_amount);
+                let mut path = child_path;
+                if amount < flow.amount {
+                    adj.get_mut(&v).unwrap().push(Flow {amount: flow.amount - amount, ..flow.clone()});
+                }
+                path.push(Flow {amount, ..flow});
+                (amount, path)
+            }
+        }
+        let mut result = Vec::new();
+        loop {
+            let (flow, path) = decompose(&mut adj, &Vertex::Source, std::u32::MAX);
+            if flow == 0 {
+                break;
+            } else {
+                result.push(path.into_iter().rev().collect());
+            }
+        }
+        result.into_iter().map(|x| Path {flows: x}).collect()
     }
 }
 
@@ -272,5 +349,18 @@ mod tests {
         let flow: Vec<_> = edges.iter().map(|x| x.data.flow).collect();
         assert_eq!(cost, 6750);
         assert_eq!(flow, vec![10, 10, 5, 5, 15]);
+    }
+
+    #[test]
+    fn large_number() {
+        for i in 0..47 {
+            let x = i * 1e3 as i32;
+            println!("x={}", x);
+            let (total, _) = GraphBuilder::new()
+                .add_edge(Vertex::Source, 0, Capacity(x as u32), Cost(x))
+                .add_edge(0, Vertex::Sink, Capacity(x as u32), Cost(0))
+                .mcmf();
+            assert_eq!(total, x as i64 * x as i64);
+        }
     }
 }
