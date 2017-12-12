@@ -141,6 +141,17 @@ pub enum Vertex<T: Clone + Ord> {
     Source, Sink, Node(T)
 }
 
+impl<T> Vertex<T> where T: Clone + Ord {
+    /// Maps `Source`, `Sink`, and `Node(x)` to `None`, `None`, and `Some(x)` respectively.
+    pub fn as_option(self) -> Option<T> {
+        match self {
+            Vertex::Source => None,
+            Vertex::Sink => None,
+            Vertex::Node(x) => Some(x),
+        }
+    }
+}
+
 impl<T> From<T> for Vertex<T> where T: Clone + Ord {
     fn from(x: T) -> Vertex<T> {
         Vertex::Node(x)
@@ -374,5 +385,12 @@ mod tests {
                 .mcmf();
             assert_eq!(total, (x as i64 * x as i64) as i32);
         }
+    }
+
+    #[test]
+    fn empty_graph() {
+        let (cost, paths) = GraphBuilder::<i32>::new().mcmf();
+        assert_eq!(cost, 0);
+        assert!(paths.is_empty())
     }
 }
