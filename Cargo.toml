@@ -2,6 +2,12 @@
 name = "flow"
 version = "1.0.0"
 authors = ["Jacob Jackson <jacobbfjackson@gmail.com>"]
+description = "This crate is for solving instances of the minimum cost maximum flow problem. It uses the network simplex algorithm from the LEMON graph optimization library."
+repository = "https://github.com/zxqfl/flow"
+readme = "README.md"
+keywords = ["graph", "flow", "optimization"]
+categories = ["algorithms"]
+license = "MIT"
 
 [build-dependencies]
 gcc = "0.3"
