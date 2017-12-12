@@ -3,7 +3,7 @@
 //! 
 //! # Example
 //! ```
-//! use flow::{GraphBuilder, Vertex, Cost, Capacity};
+//! use mcmf::{GraphBuilder, Vertex, Cost, Capacity};
 //! let (cost, paths) = GraphBuilder::new()
 //!     .add_edge(Vertex::Source, "Vancouver", Capacity(2), Cost(0))
 //!     .add_edge("Vancouver", "Toronto", Capacity(2), Cost(100))
@@ -197,7 +197,7 @@ impl<T> Path<T> where T: Clone + Ord {
 /// Use this struct to build a graph, then call the `mcmf()` function to find its minimum cost maximum flow.
 /// # Example
 /// ```
-/// use flow::{GraphBuilder, Vertex, Cost, Capacity};
+/// use mcmf::{GraphBuilder, Vertex, Cost, Capacity};
 /// let (cost, paths) = GraphBuilder::new()
 ///     .add_edge(Vertex::Source, "Vancouver", Capacity(2), Cost(0))
 ///     .add_edge("Vancouver", "Toronto", Capacity(2), Cost(100))

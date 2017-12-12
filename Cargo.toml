@@ -1,5 +1,5 @@
 [package]
-name = "flow"
+name = "mcmf"
 version = "1.0.0"
 authors = ["Jacob Jackson <jacobbfjackson@gmail.com>"]
 description = "This crate is for solving instances of the minimum cost maximum flow problem. It uses the network simplex algorithm from the LEMON graph optimization library."
