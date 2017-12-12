@@ -134,8 +134,10 @@ impl Graph {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Vertex<T: Ord + Clone> {
+/// This class represents a vertex in a graph.
+/// It is parametrized by `T` so that users of the library can use the most convenient type for representing nodes in the graph.
+#[derive(Copy, Clone, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Vertex<T: Clone + Ord> {
     Source, Sink, Node(T)
 }
 
@@ -147,7 +149,7 @@ impl<T> From<T> for Vertex<T> where T: Clone + Ord {
 
 /// Represents flow in a solution to the minimum cost maximum flow problem.
 #[derive(Clone)]
-pub struct Flow<T: Ord + Clone> {
+pub struct Flow<T: Clone + Ord> {
     pub a: Vertex<T>,
     pub b: Vertex<T>,
     pub amount: u32,
@@ -155,11 +157,11 @@ pub struct Flow<T: Ord + Clone> {
 }
 
 /// Represents a path from the source to the sink in a solution to the minimum cost maximum flow problem.
-pub struct Path<T: Ord + Clone> {
+pub struct Path<T: Clone + Ord> {
     pub flows: Vec<Flow<T>>
 }
 
-impl<T> Path<T> where T: Ord + Clone {
+impl<T> Path<T> where T: Clone + Ord {
     /// A list of all the vertices in the path.
     /// Always begins with `Vertex::Source` and ends with `Vertex::Sink`.
     pub fn vertices(&self) -> Vec<&Vertex<T>> {
@@ -221,11 +223,11 @@ impl<T> Path<T> where T: Ord + Clone {
 ///         &Vertex::Sink]);
 /// ```
 #[derive(Clone)]
-pub struct GraphBuilder<T: Ord + Clone> {
+pub struct GraphBuilder<T: Clone + Ord> {
     pub edge_list: Vec<(Vertex<T>, Vertex<T>, Capacity, Cost)>
 }
 
-impl<T> GraphBuilder<T> where T: Ord + Clone {
+impl<T> GraphBuilder<T> where T: Clone + Ord {
     /// Creates a new empty graph.
     pub fn new() -> Self {
         GraphBuilder {edge_list: Vec::new()}
@@ -245,8 +247,9 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
     }
 
     /// Computes the minimum cost maximum flow.
-    /// Returns a tuple (total cost, list of paths).
-    /// The paths are sorted in ascending order by length.
+    /// 
+    /// Returns a tuple (total cost, list of paths). The paths are sorted in ascending order by length.
+    ///
     /// This gives incorrect results when the total cost exceeds 2^(31)-1.
     /// It is the responsibility of the caller to ensure that the total cost doesn't exceed 2^(31)-1.
     pub fn mcmf(&self) -> (i32, Vec<Path<T>>) {
@@ -302,7 +305,7 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
         for x in flows {
             adj.get_mut(&x.a).unwrap().push(x);
         }
-        fn decompose<T: Ord + Clone>(adj: &mut BTreeMap<Vertex<T>, Vec<Flow<T>>>, v: &Vertex<T>, parent_amount: u32) -> (u32, Vec<Flow<T>>) {
+        fn decompose<T: Clone + Ord>(adj: &mut BTreeMap<Vertex<T>, Vec<Flow<T>>>, v: &Vertex<T>, parent_amount: u32) -> (u32, Vec<Flow<T>>) {
             if *v == Vertex::Sink {
                 (std::u32::MAX, Vec::new())
             } else if adj.get(&v).into_iter().all(|x| x.is_empty()) {
@@ -357,13 +360,17 @@ mod tests {
 
     #[test]
     fn large_number() {
+        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+        enum OnlyNode {
+            Only
+        }
         for i in 0..48 {
             let x = i * 1000;
             println!("x={}", x);
             let (total, _) = GraphBuilder::new()
-                .add_edge(Vertex::Source, 0, Capacity(x as u32), Cost(x))
-                .add_edge(Vertex::Source, 0, Capacity(x as u32), Cost(x))
-                .add_edge(0, Vertex::Sink, Capacity(x as u32), Cost(0))
+                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x as u32), Cost(x))
+                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x as u32), Cost(x))
+                .add_edge(OnlyNode::Only, Vertex::Sink, Capacity(x as u32), Cost(0))
                 .mcmf();
             assert_eq!(total, (x as i64 * x as i64) as i32);
         }
