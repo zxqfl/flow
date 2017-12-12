@@ -12,6 +12,7 @@
 //!     .add_edge("Halifax", Vertex::Sink, Capacity(2), Cost(0))
 //!     .mcmf();
 //! assert_eq!(cost, 650);
+//! assert_eq!(cost, paths.iter().map(|path| path.cost()).sum());
 //! assert_eq!(paths.len(), 2);
 //! assert!(
 //!     paths[0].vertices() == vec![
@@ -145,38 +146,38 @@ impl<T> From<T> for Vertex<T> where T: Clone + Ord {
 }
 
 /// Represents flow in a solution to the minimum cost maximum flow problem.
-#[derive(Clone, Copy)]
-pub struct Flow<V> {
-    pub a: V,
-    pub b: V,
+#[derive(Clone)]
+pub struct Flow<T: Ord + Clone> {
+    pub a: Vertex<T>,
+    pub b: Vertex<T>,
     pub amount: u32,
     pub cost: i32
 }
 
 /// Represents a path from the source to the sink in a solution to the minimum cost maximum flow problem.
-pub struct Path<V> {
-    pub flows: Vec<Flow<V>>
+pub struct Path<T: Ord + Clone> {
+    pub flows: Vec<Flow<T>>
 }
 
-impl<V> Path<V> {
+impl<T> Path<T> where T: Ord + Clone {
     /// A list of all the vertices in the path.
     /// Always begins with `Vertex::Source` and ends with `Vertex::Sink`.
-    pub fn vertices(&self) -> Vec<&V> {
+    pub fn vertices(&self) -> Vec<&Vertex<T>> {
         iter::once(&self.flows[0].a)
             .chain(self.flows.iter().map(|x| &x.b))
             .collect()
     }
 
     /// A list of all the edges in the path.
-    pub fn edges(&self) -> Vec<&Flow<V>> {
+    pub fn edges(&self) -> Vec<&Flow<T>> {
         self.flows.iter().collect()
     }
 
     /// Returns the total cost of the path.
     /// `path.cost()` is always a multiple of `path.amount()`.
-    pub fn cost(&self) -> i64 {
+    pub fn cost(&self) -> i32 {
         self.flows.iter()
-            .map(|flow| flow.amount as i64 * flow.cost as i64)
+            .map(|flow| flow.amount as i32 * flow.cost)
             .sum()
     }
 
@@ -203,6 +204,7 @@ impl<V> Path<V> {
 ///     .add_edge("Halifax", Vertex::Sink, Capacity(2), Cost(0))
 ///     .mcmf();
 /// assert_eq!(cost, 650);
+/// assert_eq!(cost, paths.iter().map(|path| path.cost()).sum());
 /// assert_eq!(paths.len(), 2);
 /// assert!(
 ///     paths[0].vertices() == vec![
@@ -245,7 +247,9 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
     /// Computes the minimum cost maximum flow.
     /// Returns a tuple (total cost, list of paths).
     /// The paths are sorted in ascending order by length.
-    pub fn mcmf(&self) -> (i64, Vec<Path<Vertex<T>>>) {
+    /// This gives incorrect results when the total cost exceeds 2^(31)-1.
+    /// It is the responsibility of the caller to ensure that the total cost doesn't exceed 2^(31)-1.
+    pub fn mcmf(&self) -> (i32, Vec<Path<T>>) {
         let mut next_id = 0;
         let source = Vertex::Source.clone();
         let sink = Vertex::Sink.clone();
@@ -273,7 +277,7 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
             }
             g.add_edge(node_a, node_b, EdgeData::new(cost, cap));
         }
-        let total_amount = g.mcmf();
+        let total_amount = g.mcmf() as i32;
         let (_, edges) = g.extract();
         let inverse_mapping: BTreeMap<_, _> =
             index_mapper.into_iter().map(|(a, b)| (b, a)).collect();
@@ -291,14 +295,14 @@ impl<T> GraphBuilder<T> where T: Ord + Clone {
         (total_amount, paths)
     }
 
-    fn path_decomposition(flows: Vec<Flow<Vertex<T>>>) -> Vec<Path<Vertex<T>>> {
-        let mut adj: BTreeMap<Vertex<T>, Vec<Flow<Vertex<T>>>> = flows.iter()
+    fn path_decomposition(flows: Vec<Flow<T>>) -> Vec<Path<T>> {
+        let mut adj: BTreeMap<Vertex<T>, Vec<Flow<T>>> = flows.iter()
             .map(|x| (x.a.clone(), Vec::new()))
             .collect();
         for x in flows {
             adj.get_mut(&x.a).unwrap().push(x);
         }
-        fn decompose<T: Ord + Clone>(adj: &mut BTreeMap<Vertex<T>, Vec<Flow<Vertex<T>>>>, v: &Vertex<T>, parent_amount: u32) -> (u32, Vec<Flow<Vertex<T>>>) {
+        fn decompose<T: Ord + Clone>(adj: &mut BTreeMap<Vertex<T>, Vec<Flow<T>>>, v: &Vertex<T>, parent_amount: u32) -> (u32, Vec<Flow<T>>) {
             if *v == Vertex::Sink {
                 (std::u32::MAX, Vec::new())
             } else if adj.get(&v).into_iter().all(|x| x.is_empty()) {
@@ -353,14 +357,15 @@ mod tests {
 
     #[test]
     fn large_number() {
-        for i in 0..47 {
-            let x = i * 1e3 as i32;
+        for i in 0..48 {
+            let x = i * 1000;
             println!("x={}", x);
             let (total, _) = GraphBuilder::new()
                 .add_edge(Vertex::Source, 0, Capacity(x as u32), Cost(x))
+                .add_edge(Vertex::Source, 0, Capacity(x as u32), Cost(x))
                 .add_edge(0, Vertex::Sink, Capacity(x as u32), Cost(0))
                 .mcmf();
-            assert_eq!(total, x as i64 * x as i64);
+            assert_eq!(total, (x as i64 * x as i64) as i32);
         }
     }
 }

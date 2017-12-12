@@ -43,7 +43,7 @@ Int network_simplex_mcmf(Int num_vertices, Int num_edges, const Int* node_supply
     for (Int i = 0; i < num_edges; i++) {
         edge_flow_result[i] = ns.flow(arcs[i]);
     }
-    return ns.totalCost();
+    return ns.totalCost<Int>();
 }
 
 extern "C" int64_t network_simplex_mcmf_i64(int64_t num_vertices, int64_t num_edges,
