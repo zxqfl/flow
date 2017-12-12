@@ -1,4 +1,6 @@
 # mcmf
+[![Version](https://img.shields.io/crates/v/mcmf.svg)](https://crates.io/crates/mcmf)
+
 This crate is for solving instances of the [minimum cost maximum flow problem](https://en.wikipedia.org/wiki/Minimum-cost_flow_problem).
 It uses the network simplex algorithm from the [LEMON](http://lemon.cs.elte.hu/trac/lemon) graph optimization library.
 
