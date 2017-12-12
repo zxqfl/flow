@@ -8,6 +8,8 @@ A number of problems are special cases of min cost max flow, including max flow,
 
 As such, this crate can solve all of the above problems, though it may potentially be less efficient than a specialized algorithm.
 
+See the [documentation](https://docs.rs/mcmf).
+
 # Example
 ```rust
 use mcmf::{GraphBuilder, Vertex, Cost, Capacity};
