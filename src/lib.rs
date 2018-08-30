@@ -90,7 +90,7 @@ struct EdgeData {
 pub struct Cost(pub i32);
 /// Wrapper type representing the capacity of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Capacity(pub u32);
+pub struct Capacity(pub i32);
 
 impl EdgeData {
     pub fn new(cost: Cost, capacity: Capacity) -> Self {
@@ -115,7 +115,7 @@ impl Graph {
     pub fn mcmf(&mut self) -> i64 {
         let num_vertices = self.nodes.len() as i64;
         let num_edges = self.edges.len() as i64;
-        let node_supply: Vec<_> = self.nodes.iter().map(|x| x.supply).collect();
+        let node_supply: Vec<_> = self.nodes.iter().map(|x| clamp_to_i32(x.supply)).collect();
         let edge_a: Vec<_> = self.edges.iter().map(|x| x.a.0 as i64).collect();
         let edge_b: Vec<_> = self.edges.iter().map(|x| x.b.0 as i64).collect();
         let edge_capacity: Vec<_> = self.edges.iter().map(|x| x.data.capacity).collect();
@@ -132,6 +132,13 @@ impl Graph {
         }
         result
     }
+}
+
+fn clamp_to_i32(x: i64) -> i64 {
+    let limit = std::i32::MAX as i64;
+    let x = std::cmp::min(x, limit);
+    let x = std::cmp::max(x, -limit);
+    x
 }
 
 /// This class represents a vertex in a graph.
@@ -247,7 +254,12 @@ impl<T> GraphBuilder<T> where T: Clone + Ord {
     /// Add an edge to the graph.
     ///
     /// `capacity` and `cost` have wrapper types so that you can't mix them up.
+    ///
+    /// Panics if `capacity` is negative.
     pub fn add_edge<A: Into<Vertex<T>>, B: Into<Vertex<T>>>(&mut self, a: A, b: B, capacity: Capacity, cost: Cost) -> &mut Self {
+        if capacity.0 < 0 {
+            panic!("capacity cannot be negative (capacity was {})", capacity.0)
+        }
         let a = a.into();
         let b = b.into();
         assert!(a != b);
@@ -261,7 +273,7 @@ impl<T> GraphBuilder<T> where T: Clone + Ord {
     /// 
     /// Returns a tuple (total cost, list of paths). The paths are sorted in ascending order by length.
     ///
-    /// This gives incorrect results when the total cost exceeds 2^(31)-1.
+    /// This gives incorrect results when the total cost or the total flow exceeds 2^(31)-1.
     /// It is the responsibility of the caller to ensure that the total cost doesn't exceed 2^(31)-1.
     pub fn mcmf(&self) -> (i32, Vec<Path<T>>) {
         let mut next_id = 0;
@@ -379,9 +391,9 @@ mod tests {
             let x = i * 1000;
             println!("x={}", x);
             let (total, _) = GraphBuilder::new()
-                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x as u32), Cost(x))
-                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x as u32), Cost(x))
-                .add_edge(OnlyNode::Only, Vertex::Sink, Capacity(x as u32), Cost(0))
+                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x), Cost(x))
+                .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x), Cost(x))
+                .add_edge(OnlyNode::Only, Vertex::Sink, Capacity(x), Cost(0))
                 .mcmf();
             assert_eq!(total, (x as i64 * x as i64) as i32);
         }
@@ -392,5 +404,31 @@ mod tests {
         let (cost, paths) = GraphBuilder::<i32>::new().mcmf();
         assert_eq!(cost, 0);
         assert!(paths.is_empty())
+    }
+
+    #[test]
+    fn large_capacities() {
+        let max = 1 << 30;
+        assert_eq!(max, 1073741824);
+        let (cost, paths) = GraphBuilder::new()
+            .add_edge(
+                Vertex::Source,
+                "A",
+                Capacity(max),
+                Cost(0),
+            ).add_edge(
+                "A",
+                Vertex::Sink,
+                Capacity(max),
+                Cost(0),
+            ).mcmf();
+        assert_eq!(cost, 0);
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn negative_capacity_panics() {
+        GraphBuilder::new().add_edge("a", "b", Capacity(-1), Cost(0));
     }
 }
