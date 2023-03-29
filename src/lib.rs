@@ -130,7 +130,7 @@ impl Graph {
     pub fn mcmf(&mut self) -> i64 {
         let num_vertices = self.nodes.len();
         let num_edges = self.edges.len();
-        let node_supply: Vec<_> = self.nodes.iter().map(|x| clamp_to_i32(x.supply)).collect();
+        let node_supply: Vec<_> = self.nodes.iter().map(|x| x.supply).collect();
         let edge_a: Vec<_> = self
             .edges
             .iter()
@@ -162,13 +162,6 @@ impl Graph {
         }
         result
     }
-}
-
-fn clamp_to_i32(x: i64) -> i64 {
-    let limit = std::i32::MAX.into();
-    let x = std::cmp::min(x, limit);
-
-    std::cmp::max(x, -limit)
 }
 
 /// This class represents a vertex in a graph.
