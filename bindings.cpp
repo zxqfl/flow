@@ -37,7 +37,7 @@ Int network_simplex_mcmf(Int num_vertices, Int num_edges, const Int* node_supply
     for (Int i = 0; i < num_edges; i++) {
         costs[arcs[i]] = edge_cost[i];
     }
-    NetworkSimplex<SmartDigraph> ns(G);
+    NetworkSimplex<SmartDigraph, int64_t, int64_t> ns(G);
     ns.supplyMap(supplies).upperMap(capacities).costMap(costs);
     ns.run();
     for (Int i = 0; i < num_edges; i++) {
