@@ -31,6 +31,7 @@
 
 use std::cmp::min;
 use std::collections::BTreeMap;
+use std::convert::{TryFrom, TryInto};
 use std::iter;
 
 #[link(name = "flow")]
@@ -97,15 +98,15 @@ struct EdgeData {
 
 /// Wrapper type representing the cost of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Cost(pub i32);
+pub struct Cost(pub i64);
 /// Wrapper type representing the capacity of an edge in the graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Capacity(pub i32);
+pub struct Capacity(pub i64);
 
 impl EdgeData {
     pub fn new(cost: Cost, capacity: Capacity) -> Self {
-        let cost = cost.0 as i64;
-        let capacity = capacity.0 as i64;
+        let cost = cost.0;
+        let capacity = capacity.0;
         assert!(capacity >= 0);
         EdgeData {
             cost,
@@ -127,19 +128,27 @@ impl Graph {
     }
 
     pub fn mcmf(&mut self) -> i64 {
-        let num_vertices = self.nodes.len() as i64;
-        let num_edges = self.edges.len() as i64;
+        let num_vertices = self.nodes.len();
+        let num_edges = self.edges.len();
         let node_supply: Vec<_> = self.nodes.iter().map(|x| clamp_to_i32(x.supply)).collect();
-        let edge_a: Vec<_> = self.edges.iter().map(|x| x.a.0 as i64).collect();
-        let edge_b: Vec<_> = self.edges.iter().map(|x| x.b.0 as i64).collect();
+        let edge_a: Vec<_> = self
+            .edges
+            .iter()
+            .map(|x| x.a.0.try_into().unwrap())
+            .collect();
+        let edge_b: Vec<_> = self
+            .edges
+            .iter()
+            .map(|x| x.b.0.try_into().unwrap())
+            .collect();
         let edge_capacity: Vec<_> = self.edges.iter().map(|x| x.data.capacity).collect();
         let edge_cost: Vec<_> = self.edges.iter().map(|x| x.data.cost).collect();
         let mut edge_flow_result = vec![0; self.edges.len()];
         let result;
         unsafe {
             result = network_simplex_mcmf_i64(
-                num_vertices,
-                num_edges,
+                num_vertices.try_into().unwrap(),
+                num_edges.try_into().unwrap(),
                 node_supply.as_ptr(),
                 edge_a.as_ptr(),
                 edge_b.as_ptr(),
@@ -156,7 +165,7 @@ impl Graph {
 }
 
 fn clamp_to_i32(x: i64) -> i64 {
-    let limit = std::i32::MAX as i64;
+    let limit = std::i32::MAX.into();
     let x = std::cmp::min(x, limit);
 
     std::cmp::max(x, -limit)
@@ -200,7 +209,7 @@ pub struct Flow<T: Clone + Ord> {
     pub a: Vertex<T>,
     pub b: Vertex<T>,
     pub amount: u64,
-    pub cost: i32,
+    pub cost: i64,
 }
 
 /// Represents a path from the source to the sink in a solution to the minimum cost maximum flow problem.
@@ -227,10 +236,10 @@ where
 
     /// Returns the total cost of the path.
     /// `path.cost()` is always a multiple of `path.amount()`.
-    pub fn cost(&self) -> i32 {
+    pub fn cost(&self) -> i64 {
         self.flows
             .iter()
-            .map(|flow| flow.amount as i32 * flow.cost)
+            .map(|flow| i64::try_from(flow.amount).unwrap() * flow.cost)
             .sum()
     }
 
@@ -324,7 +333,7 @@ where
     ///
     /// This gives incorrect results when the total cost or the total flow exceeds 2^(31)-1.
     /// It is the responsibility of the caller to ensure that the total cost doesn't exceed 2^(31)-1.
-    pub fn mcmf(&self) -> (i32, Vec<Path<T>>) {
+    pub fn mcmf(&self) -> (i64, Vec<Path<T>>) {
         let mut next_id = 0;
         let source = Vertex::Source.clone();
         let sink = Vertex::Sink.clone();
@@ -350,18 +359,12 @@ where
                 // The + supply and - supply must be equal because of how LEMON interprets
                 // its input.
                 // http://lemon.cs.elte.hu/pub/doc/latest/a00005.html
-                g.increase_supply(
-                    Node(*index_mapper.get(&Vertex::Source).unwrap()),
-                    cap.0 as i64,
-                );
-                g.decrease_supply(
-                    Node(*index_mapper.get(&Vertex::Sink).unwrap()),
-                    cap.0 as i64,
-                );
+                g.increase_supply(Node(*index_mapper.get(&Vertex::Source).unwrap()), cap.0);
+                g.decrease_supply(Node(*index_mapper.get(&Vertex::Sink).unwrap()), cap.0);
             }
             g.add_edge(node_a, node_b, EdgeData::new(cost, cap));
         }
-        let total_amount = g.mcmf() as i32;
+        let total_amount = g.mcmf();
         let (_, edges) = g.extract();
         let inverse_mapping: BTreeMap<_, _> =
             index_mapper.into_iter().map(|(a, b)| (b, a)).collect();
@@ -370,15 +373,15 @@ where
             .map(|x| {
                 let a = (**inverse_mapping.get(&x.a.0).unwrap()).clone();
                 let b = (**inverse_mapping.get(&x.b.0).unwrap()).clone();
-                let amount = x.data.flow as u64;
-                let cost = x.data.cost as i32;
+                let amount = x.data.flow.try_into().unwrap();
+                let cost = x.data.cost.try_into().unwrap();
                 Flow { a, b, amount, cost }
             })
             .filter(|x| x.amount != 0)
             .collect();
         let mut paths = GraphBuilder::path_decomposition(flows);
         paths.sort_by_key(|path| path.len());
-        (total_amount, paths)
+        (total_amount.try_into().unwrap(), paths)
     }
 
     fn path_decomposition(flows: Vec<Flow<T>>) -> Vec<Path<T>> {
@@ -461,7 +464,7 @@ mod tests {
                 .add_edge(Vertex::Source, OnlyNode::Only, Capacity(x), Cost(x))
                 .add_edge(OnlyNode::Only, Vertex::Sink, Capacity(x), Cost(0))
                 .mcmf();
-            assert_eq!(total, (x as i64 * x as i64) as i32);
+            assert_eq!(total, (x * x));
         }
     }
 
