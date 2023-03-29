@@ -199,7 +199,7 @@ where
 pub struct Flow<T: Clone + Ord> {
     pub a: Vertex<T>,
     pub b: Vertex<T>,
-    pub amount: u32,
+    pub amount: u64,
     pub cost: i32,
 }
 
@@ -235,7 +235,7 @@ where
     }
 
     /// Returns the amount of flow in the path.
-    pub fn amount(&self) -> u32 {
+    pub fn amount(&self) -> u64 {
         self.flows[0].amount
     }
 
@@ -370,7 +370,7 @@ where
             .map(|x| {
                 let a = (**inverse_mapping.get(&x.a.0).unwrap()).clone();
                 let b = (**inverse_mapping.get(&x.b.0).unwrap()).clone();
-                let amount = x.data.flow as u32;
+                let amount = x.data.flow as u64;
                 let cost = x.data.cost as i32;
                 Flow { a, b, amount, cost }
             })
@@ -390,10 +390,10 @@ where
         fn decompose<T: Clone + Ord>(
             adj: &mut BTreeMap<Vertex<T>, Vec<Flow<T>>>,
             v: &Vertex<T>,
-            parent_amount: u32,
-        ) -> (u32, Vec<Flow<T>>) {
+            parent_amount: u64,
+        ) -> (u64, Vec<Flow<T>>) {
             if *v == Vertex::Sink {
-                (std::u32::MAX, Vec::new())
+                (std::u64::MAX, Vec::new())
             } else if adj.get(v).into_iter().all(|x| x.is_empty()) {
                 (0, Vec::new())
             } else {
@@ -414,7 +414,7 @@ where
         }
         let mut result = Vec::new();
         loop {
-            let (flow, path) = decompose(&mut adj, &Vertex::Source, std::u32::MAX);
+            let (flow, path) = decompose(&mut adj, &Vertex::Source, std::u64::MAX);
             if flow == 0 {
                 break;
             } else {
